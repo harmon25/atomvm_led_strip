@@ -404,7 +404,16 @@ Since the gen_server processes requests sequentially, a few things to keep in mi
 
 For best performance with multiple processes:
 
-1. **Batch updates**: Use `set_pixels_rgb/2,3` instead of multiple `set_pixel_rgb/5` calls - one NIF call vs N calls:
+1. **Render from a binary**: For per-frame animation that updates the whole strip, use `render_rgb/2,3` (or `render_rgbw/2,3`) with a packed binary. This is the fastest path — one `gen_server` call, one NIF invocation, and the NIF scans a flat binary instead of unpacking N Erlang tuples:
+
+        %% Fastest: 1 gen_server call, binary input, set + refresh combined
+        Bin = <<255,0,0, 0,255,0, 0,0,255>>,
+        led_strip:render_rgb(NP, Bin).
+
+        %% Build the binary from a list of {R,G,B} tuples if needed:
+        Bin = << <<R,G,B>> || {R,G,B} <- Colors >>.
+
+2. **Batch updates**: Use `set_pixels_rgb/2,3` instead of multiple `set_pixel_rgb/5` calls - one NIF call vs N calls:
 
         %% Slow: 30 gen_server calls
         [led_strip:set_pixel_rgb(NP, I, R, G, B) || I <- lists:seq(0, 29)].
@@ -412,9 +421,9 @@ For best performance with multiple processes:
         %% Fast: 1 gen_server call  
         led_strip:set_pixels_rgb(NP, Colors).
 
-2. **Coordinate refresh**: If multiple processes set pixels, consider having a single process handle `refresh` at a fixed rate rather than each process refreshing after every update.
+3. **Coordinate refresh**: If multiple processes set pixels, consider having a single process handle `refresh` at a fixed rate rather than each process refreshing after every update.
 
-3. **Partition the strip**: Assign different pixel ranges to different processes to avoid visual conflicts, then have a coordinator refresh.
+4. **Partition the strip**: Assign different pixel ranges to different processes to avoid visual conflicts, then have a coordinator refresh.
 
 #### Timeout Handling
 

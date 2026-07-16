@@ -16,7 +16,7 @@
 %%
 -module(led_strip_example).
 
--export([start/0, demo_fill/0, demo_pattern/0]).
+-export([start/0, demo_fill/0, demo_pattern/0, demo_render/0]).
 
 -define(LED_STRIP_PIN, 18).
 -define(NUM_PIXELS, 4).
@@ -69,6 +69,38 @@ pattern_loop(LedStrip, Pattern, Offset) ->
 
 rotate_list(List, 0) -> List;
 rotate_list([H | T], N) -> rotate_list(T ++ [H], N - 1).
+
+%% @doc Demo: Render the whole strip from a packed binary in one call.
+%% render_rgb/2 sets all pixels from <<R,G,B,...>> and refreshes atomically.
+demo_render() ->
+    {ok, LedStrip} = led_strip:start(?LED_STRIP_PIN, ?NUM_PIXELS),
+    ok = led_strip:clear(LedStrip),
+    render_loop(LedStrip, 0).
+
+render_loop(LedStrip, Hue) ->
+    %% Build a packed RGB binary: one pixel per LED, cycling the hue
+    Bin = build_rainbow_bin(?NUM_PIXELS, Hue, 0, <<>>),
+    ok = led_strip:render_rgb(LedStrip, Bin),
+    timer:sleep(50),
+    render_loop(LedStrip, (Hue + 4) rem 360).
+
+build_rainbow_bin(0, _Hue, _I, Acc) -> Acc;
+build_rainbow_bin(N, Hue, I, Acc) ->
+    {R, G, B} = hue_to_rgb((Hue + I * 30) rem 360),
+    build_rainbow_bin(N - 1, Hue, I + 1, <<Acc/binary, R, G, B>>).
+
+hue_to_rgb(Hue) ->
+    %% Simple HSV→RGB for the demo (full saturation, full value)
+    I = Hue div 60,
+    F = (Hue rem 60) * 255 div 60,
+    case I of
+        0 -> {255, F, 0};
+        1 -> {255 - F, 255, 0};
+        2 -> {0, 255, F};
+        3 -> {0, 255 - F, 255};
+        4 -> {F, 0, 255};
+        _ -> {255, 0, 255 - F}
+    end.
 
 loop(LedStrip, I, Hue, SleepMs) ->
     ok = led_strip:set_pixel_hsv(LedStrip, I, Hue, ?SATURATION, ?VALUE),

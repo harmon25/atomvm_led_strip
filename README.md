@@ -9,6 +9,7 @@ This AtomVM Erlang library and Nif can be used to control WS2812 and SK6812 LED 
 - **Global brightness control** - Efficient brightness scaling (0-255) applied at refresh time
 - **Multiple color spaces** - RGB, RGBW, HSV, and HSVW
 - **Batch operations** - Fill entire strip or set multiple pixels in a single call
+- **Binary rendering** - `render_rgb`/`render_rgbw` combine set + refresh in one call with packed binary input (fastest path for per-frame animation)
 - **Multiple strips** - Drive multiple LED strips simultaneously on different GPIO pins
 - **ESP-IDF 5.x compatible** - Uses the new RMT driver API
 
@@ -95,6 +96,32 @@ ok = led_strip:set_pixels_rgb(LedStrip, Colors, 0),
 ok = led_strip:refresh(LedStrip).
 ```
 
+### Render from a Binary (set + refresh in one call)
+
+For the fastest per-frame animation, pack pixel values into a binary and
+use `render_rgb`/`render_rgbw` — set and refresh happen in a single
+`gen_server` call, and the NIF processes a flat binary instead of walking
+Erlang tuples.
+
+```erlang
+%% Packed RGB binary: <<R,G,B, R,G,B, ...>>
+Bin = <<255,0,0, 0,255,0, 0,0,255, 255,255,0>>,
+ok = led_strip:render_rgb(LedStrip, Bin).
+
+%% Starting at offset 5
+ok = led_strip:render_rgb(LedStrip, 5, Bin).
+
+%% RGBW strips: <<R,G,B,W, R,G,B,W, ...>>
+BinW = <<255,0,0,0, 0,255,0,128, 0,0,255,255>>,
+ok = led_strip:render_rgbw(LedStrip, BinW).
+```
+
+```elixir
+# Elixir
+bin = <<255,0,0, 0,255,0, 0,0,255, 255,255,0>>
+:ok = :led_strip.render_rgb(led_strip, bin)
+```
+
 ### Brightness Control
 
 ```erlang
@@ -164,6 +191,10 @@ loop(LedStrip, Index, Hue, DelayMs) ->
 | `fill_hsvw(LedStrip, H, S, V, W)` | Fill all pixels with HSVW color |
 | `set_pixels_rgb(LedStrip, ColorList)` | Set multiple pixels from list of {R,G,B} tuples |
 | `set_pixels_rgbw(LedStrip, ColorList)` | Set multiple pixels from list of {R,G,B,W} tuples |
+| `render_rgb(LedStrip, Binary)` | Set pixels from packed `<<R,G,B,...>>` binary and refresh in one call |
+| `render_rgb(LedStrip, Offset, Binary)` | Like `render_rgb/2` starting at `Offset` |
+| `render_rgbw(LedStrip, Binary)` | Set pixels from packed `<<R,G,B,W,...>>` binary and refresh (SK6812 only) |
+| `render_rgbw(LedStrip, Offset, Binary)` | Like `render_rgbw/2` starting at `Offset` |
 
 ### Brightness Functions
 
