@@ -681,6 +681,104 @@ static term nif_set_pixels_rgbw(Context *ctx, int argc, term argv[])
 }
 
 
+static term nif_render_rgb(Context *ctx, int argc, term argv[])
+{
+    UNUSED(argc);
+
+    term handle = argv[0];
+    VALIDATE_VALUE(handle, term_is_binary);
+    term offset_term = argv[1];
+    VALIDATE_VALUE(offset_term, term_is_integer);
+    term data_term = argv[2];
+    VALIDATE_VALUE(data_term, term_is_binary);
+
+    avm_led_strip_t *strip = (avm_led_strip_t *) binary_to_ptr(handle);
+    avm_int_t offset = term_to_int(offset_term);
+
+    size_t size = term_binary_size(data_term);
+    if (size % 3 != 0) {
+        TRACE("render_rgb: binary size %u not multiple of 3\n", (unsigned)size);
+        if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
+            RAISE_ERROR(OUT_OF_MEMORY_ATOM);
+        }
+        term error_tuple = term_alloc_tuple(2, &ctx->heap);
+        term_put_tuple_element(error_tuple, 0, ERROR_ATOM);
+        term_put_tuple_element(error_tuple, 1, BADARG_ATOM);
+        return error_tuple;
+    }
+    uint32_t count = (uint32_t)(size / 3);
+    const uint8_t *data = (const uint8_t *) term_binary_data(data_term);
+
+    esp_err_t err = strip->render_rgb(strip, offset, data, count);
+    if (err != ESP_OK) {
+        TRACE("render_rgb failed.  err=%i\n", err);
+        if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
+            RAISE_ERROR(OUT_OF_MEMORY_ATOM);
+        }
+        term error_tuple = term_alloc_tuple(2, &ctx->heap);
+        term_put_tuple_element(error_tuple, 0, ERROR_ATOM);
+        term_put_tuple_element(error_tuple, 1, term_from_int(err));
+        return error_tuple;
+    }
+    TRACE("Rendered %u RGB pixels from binary at offset %i\n", (unsigned)count, offset);
+    return OK_ATOM;
+}
+
+
+static term nif_render_rgbw(Context *ctx, int argc, term argv[])
+{
+    UNUSED(argc);
+
+    term handle = argv[0];
+    VALIDATE_VALUE(handle, term_is_binary);
+    term offset_term = argv[1];
+    VALIDATE_VALUE(offset_term, term_is_integer);
+    term data_term = argv[2];
+    VALIDATE_VALUE(data_term, term_is_binary);
+
+    avm_led_strip_t *strip = (avm_led_strip_t *) binary_to_ptr(handle);
+    avm_int_t offset = term_to_int(offset_term);
+
+    size_t size = term_binary_size(data_term);
+    if (size % 4 != 0) {
+        TRACE("render_rgbw: binary size %u not multiple of 4\n", (unsigned)size);
+        if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
+            RAISE_ERROR(OUT_OF_MEMORY_ATOM);
+        }
+        term error_tuple = term_alloc_tuple(2, &ctx->heap);
+        term_put_tuple_element(error_tuple, 0, ERROR_ATOM);
+        term_put_tuple_element(error_tuple, 1, BADARG_ATOM);
+        return error_tuple;
+    }
+    uint32_t count = (uint32_t)(size / 4);
+    const uint8_t *data = (const uint8_t *) term_binary_data(data_term);
+
+    esp_err_t err = strip->render_rgbw(strip, offset, data, count);
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        TRACE("render_rgbw called on non-RGBW strip\n");
+        if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
+            RAISE_ERROR(OUT_OF_MEMORY_ATOM);
+        }
+        term error_tuple = term_alloc_tuple(2, &ctx->heap);
+        term_put_tuple_element(error_tuple, 0, ERROR_ATOM);
+        term_put_tuple_element(error_tuple, 1, globalcontext_make_atom(ctx->global, not_supported_atom));
+        return error_tuple;
+    }
+    if (err != ESP_OK) {
+        TRACE("render_rgbw failed.  err=%i\n", err);
+        if (UNLIKELY(memory_ensure_free(ctx, 3) != MEMORY_GC_OK)) {
+            RAISE_ERROR(OUT_OF_MEMORY_ATOM);
+        }
+        term error_tuple = term_alloc_tuple(2, &ctx->heap);
+        term_put_tuple_element(error_tuple, 0, ERROR_ATOM);
+        term_put_tuple_element(error_tuple, 1, term_from_int(err));
+        return error_tuple;
+    }
+    TRACE("Rendered %u RGBW pixels from binary at offset %i\n", (unsigned)count, offset);
+    return OK_ATOM;
+}
+
+
 static term nif_tini(Context *ctx, int argc, term argv[])
 {
     UNUSED(argc);
@@ -785,6 +883,16 @@ static const struct Nif set_pixels_rgbw_nif =
     .base.type = NIFFunctionType,
     .nif_ptr = nif_set_pixels_rgbw
 };
+static const struct Nif render_rgb_nif =
+{
+    .base.type = NIFFunctionType,
+    .nif_ptr = nif_render_rgb
+};
+static const struct Nif render_rgbw_nif =
+{
+    .base.type = NIFFunctionType,
+    .nif_ptr = nif_render_rgbw
+};
 static const struct Nif tini_nif =
 {
     .base.type = NIFFunctionType,
@@ -863,6 +971,14 @@ const struct Nif *atomvm_led_strip_get_nif(const char *nifname)
     if (strcmp("led_strip:nif_set_pixels_rgbw/3", nifname) == 0) {
         TRACE("Resolved platform nif %s ...\n", nifname);
         return &set_pixels_rgbw_nif;
+    }
+    if (strcmp("led_strip:nif_render_rgb/3", nifname) == 0) {
+        TRACE("Resolved platform nif %s ...\n", nifname);
+        return &render_rgb_nif;
+    }
+    if (strcmp("led_strip:nif_render_rgbw/3", nifname) == 0) {
+        TRACE("Resolved platform nif %s ...\n", nifname);
+        return &render_rgbw_nif;
     }
     if (strcmp("led_strip:nif_tini/2", nifname) == 0) {
         TRACE("Resolved platform nif %s ...\n", nifname);

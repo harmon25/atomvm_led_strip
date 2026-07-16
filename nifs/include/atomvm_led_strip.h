@@ -44,6 +44,8 @@ struct avm_led_strip_s {
     uint8_t (*get_brightness)(avm_led_strip_t *strip);
     esp_err_t (*fill)(avm_led_strip_t *strip, uint32_t red, uint32_t green, uint32_t blue);
     esp_err_t (*fill_rgbw)(avm_led_strip_t *strip, uint32_t red, uint32_t green, uint32_t blue, uint32_t white);
+    esp_err_t (*render_rgb)(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count);
+    esp_err_t (*render_rgbw)(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count);
 };
 
 /**

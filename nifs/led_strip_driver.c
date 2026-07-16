@@ -52,6 +52,8 @@ static esp_err_t wrapper_set_brightness(avm_led_strip_t *strip, uint8_t brightne
 static uint8_t wrapper_get_brightness(avm_led_strip_t *strip);
 static esp_err_t wrapper_fill(avm_led_strip_t *strip, uint32_t red, uint32_t green, uint32_t blue);
 static esp_err_t wrapper_fill_rgbw(avm_led_strip_t *strip, uint32_t red, uint32_t green, uint32_t blue, uint32_t white);
+static esp_err_t wrapper_render_rgb(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count);
+static esp_err_t wrapper_render_rgbw(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count);
 
 // Apply brightness to a color value
 static inline uint8_t apply_brightness(uint8_t value, uint8_t brightness)
@@ -239,6 +241,84 @@ static esp_err_t wrapper_fill_rgbw(avm_led_strip_t *strip, uint32_t red, uint32_
     return ESP_OK;
 }
 
+static esp_err_t wrapper_render_rgb(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count)
+{
+    strip_wrapper_t *wrapper = __containerof(strip, strip_wrapper_t, parent);
+    uint8_t br = wrapper->brightness;
+    uint8_t bpp = wrapper->bytes_per_pixel;
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = offset + i;
+        if (idx >= wrapper->strip_len) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        uint32_t buf_off = idx * bpp;
+        uint8_t r = data[i * 3 + 0];
+        uint8_t g = data[i * 3 + 1];
+        uint8_t b = data[i * 3 + 2];
+        wrapper->pixel_buf[buf_off + 0] = r;
+        wrapper->pixel_buf[buf_off + 1] = g;
+        wrapper->pixel_buf[buf_off + 2] = b;
+        if (bpp == 4) {
+            wrapper->pixel_buf[buf_off + 3] = 0;
+            esp_err_t err = led_strip_set_pixel_rgbw(wrapper->idf_strip, idx,
+                                                     apply_brightness(r, br),
+                                                     apply_brightness(g, br),
+                                                     apply_brightness(b, br), 0);
+            if (err != ESP_OK) {
+                return err;
+            }
+        } else {
+            esp_err_t err = led_strip_set_pixel(wrapper->idf_strip, idx,
+                                                apply_brightness(r, br),
+                                                apply_brightness(g, br),
+                                                apply_brightness(b, br));
+            if (err != ESP_OK) {
+                return err;
+            }
+        }
+    }
+
+    return led_strip_refresh(wrapper->idf_strip);
+}
+
+static esp_err_t wrapper_render_rgbw(avm_led_strip_t *strip, uint32_t offset, const uint8_t *data, uint32_t count)
+{
+    strip_wrapper_t *wrapper = __containerof(strip, strip_wrapper_t, parent);
+
+    if (wrapper->led_type != AVM_LED_STRIP_RGBW) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint8_t br = wrapper->brightness;
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = offset + i;
+        if (idx >= wrapper->strip_len) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        uint32_t buf_off = idx * 4;
+        uint8_t r = data[i * 4 + 0];
+        uint8_t g = data[i * 4 + 1];
+        uint8_t b = data[i * 4 + 2];
+        uint8_t w = data[i * 4 + 3];
+        wrapper->pixel_buf[buf_off + 0] = r;
+        wrapper->pixel_buf[buf_off + 1] = g;
+        wrapper->pixel_buf[buf_off + 2] = b;
+        wrapper->pixel_buf[buf_off + 3] = w;
+        esp_err_t err = led_strip_set_pixel_rgbw(wrapper->idf_strip, idx,
+                                                 apply_brightness(r, br),
+                                                 apply_brightness(g, br),
+                                                 apply_brightness(b, br),
+                                                 apply_brightness(w, br));
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+
+    return led_strip_refresh(wrapper->idf_strip);
+}
+
 avm_led_strip_t *avm_led_strip_new(const avm_led_strip_config_t *config)
 {
     if (!config) {
@@ -402,6 +482,8 @@ avm_led_strip_t *avm_led_strip_new(const avm_led_strip_config_t *config)
     wrapper->parent.get_brightness = wrapper_get_brightness;
     wrapper->parent.fill = wrapper_fill;
     wrapper->parent.fill_rgbw = wrapper_fill_rgbw;
+    wrapper->parent.render_rgb = wrapper_render_rgb;
+    wrapper->parent.render_rgbw = wrapper_render_rgbw;
     
     ESP_LOGI(TAG, "LED strip initialized: %lu LEDs, %s", 
              (unsigned long)config->max_leds,

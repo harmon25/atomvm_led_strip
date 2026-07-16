@@ -297,6 +297,36 @@ The list can be shorter than the strip length - only the specified pixels will b
 
 > **Note:** Calling `set_pixels_rgbw/2` or `set_pixels_rgbw/3` on an RGB strip will return `{error, not_supported}`.
 
+### Rendering from a Binary (set + refresh in one call)
+
+For the fastest per-frame animation, use `led_strip:render_rgb/2,3` (or `render_rgbw/2,3` for SK6812 RGBW strips). These functions accept a packed binary of pixel values, set all pixels in one bulk operation, and refresh the strip in a single gen_server call — eliminating one round-trip and avoiding the overhead of unpacking Erlang tuples in the NIF.
+
+The binary is a flat sequence of bytes: 3 bytes per pixel for RGB (`<<R,G,B, R,G,B, ...>>`) or 4 bytes per pixel for RGBW (`<<R,G,B,W, R,G,B,W, ...>>`). The length must be a multiple of 3 (or 4) and may be shorter than the strip length.
+
+    %% erlang
+    %% Set first 3 pixels to red, green, blue and refresh in one call
+    Bin = <<255,0,0, 0,255,0, 0,0,255>>,
+    ok = led_strip:render_rgb(LedStrip, Bin).
+
+    %% Starting at offset 5
+    ok = led_strip:render_rgb(LedStrip, 5, Bin).
+
+Or in Elixir:
+
+    # elixir
+    bin = <<255,0,0, 0,255,0, 0,0,255>>
+    :ok = :led_strip.render_rgb(led_strip, bin)
+
+For RGBW strips:
+
+    %% erlang
+    Bin = <<255,0,0,0, 0,255,0,128, 0,0,255,255>>,
+    ok = led_strip:render_rgbw(LedStrip, Bin).
+
+> **Note:** Calling `render_rgbw/2` or `render_rgbw/3` on an RGB strip will return `{error, not_supported}`.
+
+This is the recommended path for animation loops that update the entire strip every frame. The existing `set_pixels_*/2,3` + `refresh/1` APIs remain available for callers that stage multiple updates before a single refresh.
+
 ### Refreshing pixels
 
 Use the `led_strip:refresh/1` function to ref refresh all the pixels in the LED strip.
@@ -410,18 +440,6 @@ from the top level of the `atomvm_led_strip` source tree.  Output is written to 
 ### Future Optimizations
 
 The following optimizations have been identified but not yet implemented. They could further improve performance on resource-constrained hardware:
-
-#### Binary Input for `set_pixels`
-
-Accept a binary `<<R,G,B, R,G,B, ...>>` instead of a list of tuples. This would avoid the overhead of unpacking Erlang tuples in the NIF and reduce memory allocations on the Erlang side.
-
-```erlang
-%% Current (tuple list)
-led_strip:set_pixels_rgb(Strip, [{255,0,0}, {0,255,0}, {0,0,255}]).
-
-%% Potential future API (binary)
-led_strip:set_pixels_rgb_bin(Strip, <<255,0,0, 0,255,0, 0,0,255>>).
-```
 
 #### Asynchronous Operations
 
