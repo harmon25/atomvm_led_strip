@@ -40,12 +40,13 @@
     start/2, start/3, stop/1, clear/1, set_pixel_rgb/5, set_pixel_rgbw/6, set_pixel_hsv/5, 
     set_pixel_hsvw/6, refresh/1, set_brightness/2, get_brightness/1,
     fill_rgb/4, fill_rgbw/5, fill_hsv/4, fill_hsvw/5, 
-    set_pixels_rgb/2, set_pixels_rgb/3, set_pixels_rgbw/2, set_pixels_rgbw/3
+    set_pixels_rgb/2, set_pixels_rgb/3, set_pixels_rgbw/2, set_pixels_rgbw/3,
+    render_rgb/2, render_rgb/3, render_rgbw/2, render_rgbw/3
 ]).
 -export([nif_init/4, nif_clear/2, nif_refresh/2, nif_set_pixel_hsv/5, nif_set_pixel_hsvw/6,
          nif_set_pixel_rgb/5, nif_set_pixel_rgbw/6, nif_tini/2, nif_set_brightness/2, 
          nif_get_brightness/1, nif_fill_rgb/5, nif_fill_rgbw/6, nif_fill_hsv/5, nif_fill_hsvw/6,
-         nif_set_pixels_rgb/3, nif_set_pixels_rgbw/3]). %% internal nif APIs
+         nif_set_pixels_rgb/3, nif_set_pixels_rgbw/3, nif_render_rgb/3, nif_render_rgbw/3]). %% internal nif APIs
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -behaviour(gen_server).
@@ -374,6 +375,75 @@ set_pixels_rgbw(LedStrip, Offset, Colors) when is_pid(LedStrip), is_integer(Offs
 set_pixels_rgbw(_LedStrip, _Offset, _Colors) ->
     throw(badarg).
 
+%%-----------------------------------------------------------------------------
+%% @param   LedStrip        LedStrip instance
+%% @param   Binary          Binary of packed RGB pixels (`<<R,G,B, R,G,B, ...>>')
+%% @returns ok | {error, Reason}
+%% @doc     Set pixels from a packed binary and refresh in a single call.
+%%
+%% Each consecutive 3 bytes in `Binary' set the RGB values of one pixel,
+%% starting at index 0. The binary length must be a multiple of 3 and may
+%% be shorter than the strip length. The strip is refreshed atomically after
+%% all pixels are set. This is the fastest path for per-frame animation.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec render_rgb(LedStrip::led_strip(), Binary::binary()) -> ok | {error, Reason::term()}.
+render_rgb(LedStrip, Binary) ->
+    render_rgb(LedStrip, 0, Binary).
+
+%%-----------------------------------------------------------------------------
+%% @param   LedStrip        LedStrip instance
+%% @param   Offset          Starting pixel index (`0..NumPixels - 1')
+%% @param   Binary          Binary of packed RGB pixels (`<<R,G,B, R,G,B, ...>>')
+%% @returns ok | {error, Reason}
+%% @doc     Set pixels from a packed binary starting at offset and refresh.
+%%
+%% Like {@link render_rgb/2} but writes starting at `Offset'. The binary
+%% length must be a multiple of 3. The strip is refreshed atomically after
+%% all pixels are set.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec render_rgb(LedStrip::led_strip(), Offset::non_neg_integer(), Binary::binary()) -> ok | {error, Reason::term()}.
+render_rgb(LedStrip, Offset, Binary) when is_pid(LedStrip), is_integer(Offset), Offset >= 0, is_binary(Binary) ->
+    gen_server:call(LedStrip, {render_rgb, Offset, Binary});
+render_rgb(_LedStrip, _Offset, _Binary) ->
+    throw(badarg).
+
+%%-----------------------------------------------------------------------------
+%% @param   LedStrip        LedStrip instance
+%% @param   Binary          Binary of packed RGBW pixels (`<<R,G,B,W, ...>>')
+%% @returns ok | {error, Reason}
+%% @doc     Set pixels from a packed binary and refresh in a single call.
+%%
+%% Each consecutive 4 bytes in `Binary' set the RGBW values of one pixel,
+%% starting at index 0. The binary length must be a multiple of 4 and may
+%% be shorter than the strip length. The strip is refreshed atomically after
+%% all pixels are set. This is the fastest path for per-frame animation.
+%% Returns `{error, not_supported}' if called on an RGB strip.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec render_rgbw(LedStrip::led_strip(), Binary::binary()) -> ok | {error, Reason::term()}.
+render_rgbw(LedStrip, Binary) ->
+    render_rgbw(LedStrip, 0, Binary).
+
+%%-----------------------------------------------------------------------------
+%% @param   LedStrip        LedStrip instance
+%% @param   Offset          Starting pixel index (`0..NumPixels - 1')
+%% @param   Binary          Binary of packed RGBW pixels (`<<R,G,B,W, ...>>')
+%% @returns ok | {error, Reason}
+%% @doc     Set pixels from a packed binary starting at offset and refresh.
+%%
+%% Like {@link render_rgbw/2} but writes starting at `Offset'. The binary
+%% length must be a multiple of 4. The strip is refreshed atomically after
+%% all pixels are set. Returns `{error, not_supported}' on an RGB strip.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec render_rgbw(LedStrip::led_strip(), Offset::non_neg_integer(), Binary::binary()) -> ok | {error, Reason::term()}.
+render_rgbw(LedStrip, Offset, Binary) when is_pid(LedStrip), is_integer(Offset), Offset >= 0, is_binary(Binary) ->
+    gen_server:call(LedStrip, {render_rgbw, Offset, Binary});
+render_rgbw(_LedStrip, _Offset, _Binary) ->
+    throw(badarg).
+
 %%
 %% gen_server API
 %%
@@ -419,6 +489,10 @@ handle_call({set_pixels_rgb, Offset, Colors}, _From, State) ->
     {reply, ?MODULE:nif_set_pixels_rgb(State#state.nif_handle, Offset, Colors), State};
 handle_call({set_pixels_rgbw, Offset, Colors}, _From, State) ->
     {reply, ?MODULE:nif_set_pixels_rgbw(State#state.nif_handle, Offset, Colors), State};
+handle_call({render_rgb, Offset, Binary}, _From, State) ->
+    {reply, ?MODULE:nif_render_rgb(State#state.nif_handle, Offset, Binary), State};
+handle_call({render_rgbw, Offset, Binary}, _From, State) ->
+    {reply, ?MODULE:nif_render_rgbw(State#state.nif_handle, Offset, Binary), State};
 handle_call(Request, _From, State) ->
     {reply, {error, {unknown_request, Request}}, State}.
 
@@ -547,6 +621,14 @@ nif_set_pixels_rgb(_NifHandle, _Offset, _Colors) ->
 
 %% @hidden
 nif_set_pixels_rgbw(_NifHandle, _Offset, _Colors) ->
+    throw(nif_error).
+
+%% @hidden
+nif_render_rgb(_NifHandle, _Offset, _Binary) ->
+    throw(nif_error).
+
+%% @hidden
+nif_render_rgbw(_NifHandle, _Offset, _Binary) ->
     throw(nif_error).
 
 %% @hidden

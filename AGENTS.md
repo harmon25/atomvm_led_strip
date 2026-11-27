@@ -45,6 +45,11 @@ the [AtomVM Build Instructions](https://doc.atomvm.net/build-instructions.html).
 ## Conventions
 
 - Erlang module is `led_strip`; Elixir callers use `:led_strip`.
+- `render_rgb/2,3` and `render_rgbw/2,3` are the fastest path for per-frame
+  animation: they accept a packed binary (`<<R,G,B,...>>` / `<<R,G,B,W,...>>`),
+  bulk-set pixels, and refresh in one gen_server call + one NIF. Use these for
+  animation loops that update the whole strip each frame. The list-based
+  `set_pixels_*/2,3` + `refresh/1` APIs remain for staged updates.
 - License headers: Apache-2.0 (some files also LGPL-2.1-or-later, per SPDX
   in `CMakeLists.txt`). Preserve SPDX lines when editing C files.
 - `examples/led_strip_example` pins this repo via git main branch; keep the
